@@ -79,4 +79,24 @@ class Script(scripts.Script):
                 noise_std = noise_strength / 100.0 * 50
                 noise = np.random.normal(0, noise_std, img_array.shape).astype(np.float32)
                 noisy_array = np.clip(img_array + noise, 0, 255).astype(np.uint8)
-                noisy
+                noisy_image = Image.fromarray(noisy_array)
+
+                result.images[i] = noisy_image
+
+                noise_path = os.path.join(outdir_noised, f"{timestamp}_noised_{i:03}.png")
+                noisy_image.save(noise_path)
+
+                if show_compare:
+                    combined = Image.new("RGB", (img.width * 2, img.height))
+                    combined.paste(img, (0, 0))
+                    combined.paste(noisy_image, (img.width, 0))
+                    combined_images.append(combined)
+
+            except Exception as e:
+                print(f"❌ 加噪失败 image {i}: {e}")
+                continue
+
+        if show_compare:
+            result.images.extend(combined_images)
+
+        return result
