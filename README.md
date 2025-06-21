@@ -33,9 +33,9 @@ This is an extension for AUTOMATIC1111's Stable Diffusion Web UI that adds adjus
 
 ## 示例（Example）
 
-| 原始图像 | 加噪图像 (30%) |
+| 原始图像    加噪图像 (30%) |
 |----------|----------------|
-| ![original](examplessd_add_noise/original.png) | ![noisy](examplessd_add_noise/noisy.png) |
+| !(examplessd_add_noise/Example.png) |
 
 *（请根据实际项目添加示例图）*
 
