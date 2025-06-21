@@ -12,7 +12,7 @@ class Script(scripts.Script):
         return "Add Noise to Output (by MIAOKA)"
 
     def show(self, is_img2img):
-        return not is_img2img
+        return True  # ✅ 在 txt2img 和 img2img 页面都显示
 
     def ui(self, is_img2img):
         with gr.Row():
@@ -61,7 +61,6 @@ class Script(scripts.Script):
 
         for i, img in enumerate(result.images):
             try:
-                # 文件名带时间戳避免重名
                 orig_path = os.path.join(outdir_orig, f"{timestamp}_original_{i:03}.png")
                 img.save(orig_path)
 
@@ -76,6 +75,7 @@ class Script(scripts.Script):
                     print(f"⚠️ 跳过图像 {i}: 非 RGB 图像")
                     continue
 
+                # 使用更细腻的噪点比例
                 noise_std = noise_strength / 100.0 * 50
                 noise = np.random.normal(0, noise_std, img_array.shape).astype(np.float32)
                 noisy_array = np.clip(img_array + noise, 0, 255).astype(np.uint8)
