@@ -40,6 +40,13 @@ This is an extension for AUTOMATIC1111's Stable Diffusion Web UI that adds adjus
 
 
 ---
+### 界面展示和位置
+
+![界面展示和位置](examplessd_add_noise/UI.png)
+
+
+
+---
 
 ## 版权声明
 
