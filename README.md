@@ -49,7 +49,7 @@ Now you can apply various artistic effects to your generated images **without re
 
 将本扩展克隆或复制到你的 WebUI 目录的 `extensions/` 文件夹中：
 
-```bash
+
 cd stable-diffusion-webui/extensions
 git clone https://github.com/sssyyyfff/miaoka_image_effects.git
 
