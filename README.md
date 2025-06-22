@@ -88,22 +88,22 @@ pip install opencv-python-headless
 |中文名称	       |英文名称	          |说明（中/英）                                             |
 |------------------|------------------|--------------------------------------------------------|
 | 高斯噪点         | Gaussian          | 模拟真实感光随机扰动 / Simulates random sensor noise |
-| 椒盐噪点         |	Salt and Pepper	白点黑点干扰 / Adds black-and-white speckles               |
-| 均匀噪点         |	Uniform Noise	均匀浮动 / Uniform random distortion               |
-| 斑点噪点         |	Speckle Noise	图像乘噪点叠加 / Image * noise variation               |
-| 高斯模糊         |	Gaussian Blur	柔化图像 / Softens the image               |
-| 运动模糊         |	Motion Blur	模拟运动轨迹 / Simulates motion               |
-| 锐化	          |Sharpen	增强边缘 / Enhances edges                              |
-| 边缘检测         |	Edge Detection	提取边缘 / Extracts edges            |
-| 油画效果         |	Oil Painting	模拟油画笔触 / Simulates oil painting strokes               |
-| 铅笔画	          |Pencil Sketch	铅笔画效果 / Pencil drawing effect               |
-| 怀旧棕调         |	Sepia	老照片棕褐色调 / Old photo sepia tone               |
-| 反色	          |Invert	颜色反转 / Inverts colors               |
-| 像素化	          |Pixelate	像素块效果 / Pixel blocks effect               |
-| 雨滴效果         |	Rain Effect	模拟雨滴 / Simulates raindrops               |
-| 胶片颗粒         |	Film Grain	模拟胶片颗粒 / Simulates film grain               |
-| 素描效果         |	Sketch	素描画效果 / Sketch effect               |
-| 无效果	          |None	无效果 / No effect               |
+| 椒盐噪点         |	Salt and Pepper	|白点黑点干扰 / Adds black-and-white speckles               |
+| 均匀噪点         |	Uniform Noise	|均匀浮动 / Uniform random distortion               |
+| 斑点噪点         |	Speckle Noise	|图像乘噪点叠加 / Image * noise variation               |
+| 高斯模糊         |	Gaussian Blur	|柔化图像 / Softens the image               |
+| 运动模糊         |	Motion Blur	|模拟运动轨迹 / Simulates motion               |
+| 锐化	          |Sharpen	|增强边缘 / Enhances edges                              |
+| 边缘检测         |	Edge Detection|提取边缘 / Extracts edges            |
+| 油画效果         |	Oil Painting	|模拟油画笔触 / Simulates oil painting strokes               |
+| 铅笔画	          |Pencil Sketch	|铅笔画效果 / Pencil drawing effect               |
+| 怀旧棕调         |	Sepia	|老照片棕褐色调 / Old photo sepia tone               |
+| 反色	          |Invert  |颜色反转 / Inverts colors               |
+| 像素化	          |Pixelate	|像素块效果 / Pixel blocks effect               |
+| 雨滴效果         |	Rain Effect	|模拟雨滴 / Simulates raindrops               |
+| 胶片颗粒         |	Film Grain	|模拟胶片颗粒 / Simulates film grain               |
+| 素描效果         |	Sketch	|素描画效果 / Sketch effect               |
+| 无效果	          |None	|无效果 / No effect               |
 ```
 📁 图像保存位置
 所有图像保存于对应子文件夹中：
