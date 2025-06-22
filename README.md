@@ -49,15 +49,19 @@ Now you can apply various artistic effects to your generated images **without re
 
 将本扩展克隆或复制到你的 WebUI 目录的 `extensions/` 文件夹中：
 
-
+```
 cd stable-diffusion-webui/extensions
+```
+```
 git clone https://github.com/sssyyyfff/miaoka_image_effects.git
+```
 
 重启 WebUI 即可。
 
 注意：部分效果需要OpenCV。如果未安装，请手动安装OpenCV：
-
+```
 pip install opencv-python-headless
+```
 
 ---
 
@@ -104,12 +108,14 @@ pip install opencv-python-headless
 | 胶片颗粒         |	Film Grain	|模拟胶片颗粒 / Simulates film grain               |
 | 素描效果         |	Sketch	|素描画效果 / Sketch effect               |
 | 无效果	          |None	|无效果 / No effect               |
-```
+
+---
+
 📁 图像保存位置
 所有图像保存于对应子文件夹中：
+```
 outputs/txt2img-images/<任务文件夹>/original/   # 原始图像
 outputs/txt2img-images/<任务文件夹>/processed/ # 处理后的图像
-
 ```
 文件名自动附加时间戳，避免被覆盖。
 
