@@ -95,24 +95,31 @@ class MiaokaImageEffects(scripts.Script):
                 preset_btn_3 = gr.Button("✨ Dogma 收尾 Dogma Finish")
                 preset_btn_4 = gr.Button("🧹 清空效果 Clear")
 
+            def _preset_values(vals):
+                # 预设必须同时勾选效果，否则后处理管线会认为没有启用任何效果。
+                selected = [n for n in self.effect_names if vals.get(n, 0) > 0]
+                return [selected] + [vals.get(n, 0) for n in self.effect_names]
+
             def preset_soft():
                 vals = {"鲜艳度 Vibrance": 10, "高光 Highlights": 8, "阴影 Shadows": 5, "清晰度 Clarity": 10, "智能锐化 Smart Sharpen": 5, "光晕 Bloom": 5, "胶片颗粒 Film Grain": 2}
-                return [vals.get(n, 0) for n in self.effect_names]
+                return _preset_values(vals)
+
             def preset_cine():
-                vals = {"曝光 Exposure": 2, "对比度 Contrast": 12, "鲜艳度 Vibrance": 8, "色温 Temperature": 2, "高光 Highlights": -8, "阴影 Shadows": 6, "清晰度 Clarity": 14, "光晕 Bloom": 5, "暗角 Vignette": 8, "褪色 Fade": 4}
-                # 滑块范围为 0-100，负值由特殊效果内部以中性点表达；这里使用正向近似。
-                vals["高光 Highlights"] = 8
-                return [vals.get(n, 0) for n in self.effect_names]
+                vals = {"曝光 Exposure": 2, "对比度 Contrast": 12, "鲜艳度 Vibrance": 8, "色温 Temperature": 2, "高光 Highlights": 8, "阴影 Shadows": 6, "清晰度 Clarity": 14, "光晕 Bloom": 5, "暗角 Vignette": 8, "褪色 Fade": 4}
+                return _preset_values(vals)
+
             def preset_dogma():
                 vals = {"清晰度 Clarity": 8, "智能锐化 Smart Sharpen": 6, "局部对比度 Local Contrast": 7, "边缘保护降噪 Edge-Preserving Denoise": 8, "胶片颗粒 Film Grain": 2, "光晕 Bloom": 3}
-                return [vals.get(n, 0) for n in self.effect_names]
-            def clear_all():
-                return [0 for _ in self.effect_names]
+                return _preset_values(vals)
 
-            preset_btn_1.click(fn=preset_soft, outputs=sliders)
-            preset_btn_2.click(fn=preset_cine, outputs=sliders)
-            preset_btn_3.click(fn=preset_dogma, outputs=sliders)
-            preset_btn_4.click(fn=clear_all, outputs=sliders)
+            def clear_all():
+                return [[]] + [0 for _ in self.effect_names]
+
+            preset_outputs = [effect_select, *sliders]
+            preset_btn_1.click(fn=preset_soft, outputs=preset_outputs)
+            preset_btn_2.click(fn=preset_cine, outputs=preset_outputs)
+            preset_btn_3.click(fn=preset_dogma, outputs=preset_outputs)
+            preset_btn_4.click(fn=clear_all, outputs=preset_outputs)
 
         # 参数：选择项 + 39 个独立强度 + 其它选项。
         return [effect_select, *sliders, apply_to, show_compare, save_originals, save_processed]
@@ -122,9 +129,100 @@ class MiaokaImageEffects(scripts.Script):
         result = process_images(p)
         return self._process_from_args(p, result, effect_select, args)
 
+    def setup(self, p, effect_select, *args):
+        # 每次生成开始时重置 Neo 的逐图状态，避免上一批次的索引/目录状态串到下一次生成。
+        self._neo_dirs_ready = False
+        self._neo_image_index = 0
+        self._neo_timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    def postprocess_image(self, p, pp, effect_select, *args):
+        """Forge Classic / Neo：逐张处理已经生成的最终图片。
+
+        Neo 的 ScriptRunner 明确提供 postprocess_image()，它比在 postprocess()
+        中整体替换 Processed.images 更可靠，也能避免不同 Forge 分支对
+        Processed 生命周期的差异导致“UI 有了但效果不执行”。
+        """
+        try:
+            n = len(getattr(self, "effect_names", [])) or 39
+            strengths = list(args[:n])
+            strengths += [0] * max(0, n - len(strengths))
+            rest = list(args[n:])
+            apply_to = rest[0] if len(rest) > 0 else "所有图像"
+            show_compare = rest[1] if len(rest) > 1 else True
+            save_originals = rest[2] if len(rest) > 2 else True
+            save_processed = rest[3] if len(rest) > 3 else True
+            selected = set(effect_select or [])
+            pipeline = [(name, float(strengths[i] or 0)) for i, name in enumerate(self.effect_names)
+                        if name in selected and float(strengths[i] or 0) > 0]
+            if not pipeline:
+                return
+
+            # postprocess_image 没有可靠的 batch index 参数时，按已处理数量记录。
+            idx = int(getattr(self, "_neo_image_index", 0))
+            self._neo_image_index = idx + 1
+            if apply_to == "仅第一张" and idx > 0:
+                return
+
+            image = getattr(pp, "image", None)
+            if image is None:
+                return
+            if not isinstance(image, Image.Image):
+                if isinstance(image, np.ndarray):
+                    image = Image.fromarray(image)
+                else:
+                    return
+
+            self._neo_prepare_output_dirs(p, save_originals, save_processed)
+            timestamp = getattr(self, "_neo_timestamp", time.strftime("%Y%m%d_%H%M%S"))
+            base_seed = getattr(p, "seed", -1)
+            original = image.convert("RGB")
+
+            if save_originals:
+                original.save(os.path.join(self._neo_outdir_orig, f"{timestamp}_{base_seed}_{idx:03}_original.png"))
+
+            processed_img = original.copy()
+            for effect_type, strength in pipeline:
+                processed_img = self.apply_effect(processed_img, effect_type, strength)
+                if not isinstance(processed_img, Image.Image):
+                    processed_img = Image.fromarray(np.asarray(processed_img).astype(np.uint8))
+                processed_img = processed_img.convert("RGB")
+
+            if save_processed:
+                tag = "_".join(e.replace(" ", "") for e, _ in pipeline)[:180]
+                processed_img.save(os.path.join(self._neo_outdir_processed, f"{timestamp}_{base_seed}_{idx:03}_{tag}.png"))
+
+            # UI 上直接显示处理结果；开启对比时显示左右原图/处理图。
+            if show_compare:
+                combined = Image.new("RGB", (original.width * 2, original.height))
+                combined.paste(original, (0, 0))
+                combined.paste(processed_img, (original.width, 0))
+                pp.image = combined
+            else:
+                pp.image = processed_img
+
+            print(f"🐱 MIAOKA Neo: image {idx + 1} 已处理 | " + " → ".join(f"{e} {s:.0f}%" for e, s in pipeline))
+        except Exception as e:
+            print(f"❌ 喵咔 Neo 后处理失败: {e}")
+
     def postprocess(self, p, processed, effect_select, *args):
-        """Forge Classic / Neo：生成完成后直接处理 Processed.images。"""
+        """兼容部分 Forge/A1111 分支；Neo 主路径由 postprocess_image() 完成。"""
+        if IS_FORGE:
+            return
         self._process_from_args(p, processed, effect_select, args)
+
+    def _neo_prepare_output_dirs(self, p, save_originals, save_processed):
+        if hasattr(self, "_neo_dirs_ready"):
+            return
+        base_outdir = getattr(p, "outpath_samples", None) or "outputs"
+        self._neo_outdir_orig = os.path.join(base_outdir, "original")
+        self._neo_outdir_processed = os.path.join(base_outdir, "processed")
+        if save_originals:
+            os.makedirs(self._neo_outdir_orig, exist_ok=True)
+        if save_processed:
+            os.makedirs(self._neo_outdir_processed, exist_ok=True)
+        self._neo_timestamp = time.strftime("%Y%m%d_%H%M%S")
+        self._neo_image_index = 0
+        self._neo_dirs_ready = True
 
     def _process_from_args(self, p, result, effect_select, args):
         """解析 UI 参数并运行可叠加后处理管线。"""
