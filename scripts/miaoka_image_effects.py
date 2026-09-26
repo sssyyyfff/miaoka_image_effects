@@ -8,6 +8,8 @@ import gradio as gr
 import modules.scripts as scripts
 from modules.processing import StableDiffusionProcessing, process_images
 
+print("🐱 MIAOKA 1.5.1: image effects script loaded")
+
 # Forge Classic / Neo 检测
 # Neo 对 selectable Script 的生成流程进行了较多底层改动；在 Neo 中使用
 # AlwaysVisible + postprocess()，让 WebUI 完成采样后再处理图片，避免插件
@@ -35,11 +37,13 @@ class MiaokaImageEffects(scripts.Script):
         return "喵咔图像效果工具箱 (MIAOKA)"
     
     def show(self, is_img2img):
-        # A1111：保持原来的 Scripts 下拉菜单行为
-        # Forge Classic / Neo：改为 AlwaysVisible，通过 postprocess() 处理已生成图片
-        if IS_FORGE:
-            return scripts.AlwaysVisible
-        return True
+        # 统一使用 AlwaysVisible。
+        # Forge Classic / Neo 与新版 A1111 都只会把 AlwaysVisible 脚本
+        # 放入 postprocess_image() 回调链；不能依赖 modules_forge 检测，
+        # 因为 Neo 某些发行版并不提供 modules_forge 模块。
+        # 因此这里直接走官方的逐图后处理生命周期，避免 Neo 下 UI 有效但
+        # postprocess_image() 根本没有被调用的问题。
+        return scripts.AlwaysVisible
     
     def ui(self, is_img2img):
         """A1111 / Forge Classic / Neo 通用 UI。
@@ -132,8 +136,114 @@ class MiaokaImageEffects(scripts.Script):
     def setup(self, p, effect_select, *args):
         # 每次生成开始时重置 Neo 的逐图状态，避免上一批次的索引/目录状态串到下一次生成。
         self._neo_dirs_ready = False
+        self._neo_batch_processed = False
         self._neo_image_index = 0
         self._neo_timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    def postprocess_batch_list(self, p, pp, effect_select, *args, **kwargs):
+        """Forge Neo 主后处理入口：直接处理生成批次中的 tensor 图片。
+
+        Neo 的 ScriptRunner 会把 AlwaysVisible 脚本加入 postprocess_batch_list()
+        回调链。这里直接修改 pp.images，避免依赖旧版 A1111 的 PIL 生命周期。
+        """
+        try:
+            if getattr(self, "_neo_batch_processed", False):
+                return
+            n = len(getattr(self, "effect_names", [])) or 40
+            strengths = list(args[:n])
+            strengths += [0] * max(0, n - len(strengths))
+            rest = list(args[n:])
+            apply_to = rest[0] if len(rest) > 0 else "所有图像"
+            show_compare = rest[1] if len(rest) > 1 else True
+            save_originals = rest[2] if len(rest) > 2 else True
+            save_processed = rest[3] if len(rest) > 3 else True
+            selected = set(effect_select or [])
+            pipeline = []
+            for i, name in enumerate(self.effect_names):
+                try:
+                    strength = float(strengths[i] or 0)
+                except Exception:
+                    strength = 0.0
+                if name in selected and strength > 0:
+                    pipeline.append((name, strength))
+
+            print(f"🐱 MIAOKA: postprocess_batch_list() called | images={len(getattr(pp, 'images', []) or [])} | selected={len(selected)} | pipeline={len(pipeline)}")
+            if not pipeline:
+                return
+
+            images = getattr(pp, "images", None)
+            if not isinstance(images, list) or not images:
+                return
+
+            self._neo_prepare_output_dirs(p, save_originals, save_processed)
+            timestamp = getattr(self, "_neo_timestamp", time.strftime("%Y%m%d_%H%M%S"))
+            base_seed = getattr(p, "seed", -1)
+            processed_count = 0
+
+            import torch
+
+            def tensor_to_pil(x):
+                if isinstance(x, Image.Image):
+                    return x.convert("RGB")
+                if isinstance(x, np.ndarray):
+                    arr = x
+                    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4):
+                        arr = np.transpose(arr, (1, 2, 0))
+                    if arr.dtype != np.uint8:
+                        arr = np.clip(arr, 0, 1) * 255 if np.issubdtype(arr.dtype, np.floating) and arr.max() <= 1.01 else np.clip(arr, 0, 255)
+                        arr = arr.astype(np.uint8)
+                    if arr.ndim == 3 and arr.shape[2] == 1:
+                        arr = arr[:, :, 0]
+                    return Image.fromarray(arr).convert("RGB")
+                if torch.is_tensor(x):
+                    arr = x.detach().float().cpu().numpy()
+                    return tensor_to_pil(arr)
+                raise TypeError(f"unsupported image type: {type(x).__name__}")
+
+            def pil_to_tensor(img, ref):
+                arr = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
+                t = torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+                if torch.is_tensor(ref):
+                    # Forge Neo 的生成图通常是 CHW float tensor；保持原设备/精度。
+                    t = t.to(device=ref.device, dtype=ref.dtype)
+                return t
+
+            for idx, item in enumerate(list(images)):
+                if apply_to == "仅第一张" and idx > 0:
+                    continue
+                try:
+                    original = tensor_to_pil(item)
+                    if save_originals:
+                        original.save(os.path.join(self._neo_outdir_orig, f"{timestamp}_{base_seed}_{idx:03}_original.png"))
+
+                    processed_img = original.copy()
+                    for effect_type, strength in pipeline:
+                        processed_img = self.apply_effect(processed_img, effect_type, strength)
+                        if not isinstance(processed_img, Image.Image):
+                            processed_img = Image.fromarray(np.asarray(processed_img).astype(np.uint8))
+                        processed_img = processed_img.convert("RGB")
+
+                    if save_processed:
+                        tag = "_".join(e.replace(" ", "") for e, _ in pipeline)[:180]
+                        processed_img.save(os.path.join(self._neo_outdir_processed, f"{timestamp}_{base_seed}_{idx:03}_{tag}.png"))
+
+                    if show_compare:
+                        combined = Image.new("RGB", (original.width * 2, original.height))
+                        combined.paste(original, (0, 0))
+                        combined.paste(processed_img, (original.width, 0))
+                        images[idx] = pil_to_tensor(combined, item)
+                    else:
+                        images[idx] = pil_to_tensor(processed_img, item)
+
+                    processed_count += 1
+                except Exception as e:
+                    print(f"❌ MIAOKA batch image {idx + 1} failed: {type(e).__name__}: {e}")
+
+            self._neo_batch_processed = processed_count > 0
+            self._neo_image_index = processed_count
+            print(f"🐱 MIAOKA: Neo batch processed {processed_count}/{len(images)} image(s)")
+        except Exception as e:
+            print(f"❌ MIAOKA Neo postprocess_batch_list failed: {type(e).__name__}: {e}")
 
     def postprocess_image(self, p, pp, effect_select, *args):
         """Forge Classic / Neo：逐张处理已经生成的最终图片。
@@ -143,7 +253,10 @@ class MiaokaImageEffects(scripts.Script):
         Processed 生命周期的差异导致“UI 有了但效果不执行”。
         """
         try:
-            n = len(getattr(self, "effect_names", [])) or 39
+            # Neo 优先使用 postprocess_batch_list；如果该回调已经处理过，避免再次叠加效果。
+            if getattr(self, "_neo_batch_processed", False):
+                return
+            n = len(getattr(self, "effect_names", [])) or 40
             strengths = list(args[:n])
             strengths += [0] * max(0, n - len(strengths))
             rest = list(args[n:])
@@ -200,7 +313,7 @@ class MiaokaImageEffects(scripts.Script):
             else:
                 pp.image = processed_img
 
-            print(f"🐱 MIAOKA Neo: image {idx + 1} 已处理 | " + " → ".join(f"{e} {s:.0f}%" for e, s in pipeline))
+            print(f"🐱 MIAOKA: image {idx + 1} 已处理 | " + " → ".join(f"{e} {s:.0f}%" for e, s in pipeline))
         except Exception as e:
             print(f"❌ 喵咔 Neo 后处理失败: {e}")
 
@@ -211,7 +324,7 @@ class MiaokaImageEffects(scripts.Script):
         self._process_from_args(p, processed, effect_select, args)
 
     def _neo_prepare_output_dirs(self, p, save_originals, save_processed):
-        if hasattr(self, "_neo_dirs_ready"):
+        if getattr(self, "_neo_dirs_ready", False):
             return
         base_outdir = getattr(p, "outpath_samples", None) or "outputs"
         self._neo_outdir_orig = os.path.join(base_outdir, "original")
@@ -226,7 +339,7 @@ class MiaokaImageEffects(scripts.Script):
 
     def _process_from_args(self, p, result, effect_select, args):
         """解析 UI 参数并运行可叠加后处理管线。"""
-        n = len(getattr(self, "effect_names", [])) or 39
+        n = len(getattr(self, "effect_names", [])) or 40
         strengths = list(args[:n])
         rest = list(args[n:])
         strengths += [0] * max(0, n - len(strengths))
